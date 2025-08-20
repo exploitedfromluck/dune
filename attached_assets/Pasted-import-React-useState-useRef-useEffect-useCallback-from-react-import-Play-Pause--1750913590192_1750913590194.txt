@@ -1,0 +1,488 @@
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { 
+  Play, Pause, RotateCcw, RotateCw, Volume2, VolumeX, 
+  Maximize, Minimize, ArrowLeft, Settings, 
+  Cloud, Cast, Volume1, Smartphone, Monitor, Tablet
+} from 'lucide-react';
+
+// HELPER FUNCTION: Format time from seconds to HH:MM:SS or MM:SS
+const formatTime = (timeInSeconds) => {
+  if (isNaN(timeInSeconds) || timeInSeconds < 0) return "00:00";
+  const result = new Date(timeInSeconds * 1000).toISOString().slice(11, 19);
+  return timeInSeconds < 3600 ? result.slice(3) : result;
+};
+
+// =================================================================
+// SIMPLE UI COMPONENTS (Self-contained for portability)
+// =================================================================
+
+const Dialog = ({ open, onOpenChange, children }) => {
+  if (!open) return null;
+  return (
+    <div className="absolute inset-0 z-50 flex items-center justify-center pointer-events-auto">
+      <div className="absolute inset-0 bg-black/50" onClick={() => onOpenChange(false)} />
+      <div className="relative bg-black/60 backdrop-blur-xl border border-white/10 rounded-lg shadow-2xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-hidden flex flex-col">
+        {children}
+      </div>
+    </div>
+  );
+};
+
+const Popover = ({ open, onOpenChange, trigger, children }) => {
+  const triggerRef = useRef(null);
+  const contentRef = useRef(null);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+
+  useEffect(() => {
+    if (open && triggerRef.current && contentRef.current) {
+      const triggerRect = triggerRef.current.getBoundingClientRect();
+      const contentRect = contentRef.current.getBoundingClientRect();
+      setPosition({
+        top: triggerRect.top - contentRect.height - 10,
+        left: triggerRect.left + (triggerRect.width / 2) - (contentRect.width / 2),
+      });
+    }
+  }, [open]);
+
+  return (
+    <div className="relative">
+      <div ref={triggerRef} onClick={() => onOpenChange(!open)}>{trigger}</div>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => onOpenChange(false)} />
+          <div ref={contentRef} className="fixed z-50 bg-black/60 backdrop-blur-xl border border-white/10 rounded-lg shadow-2xl" style={{ top: `${position.top}px`, left: `${position.left}px` }}>
+            {children}
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
+const Button = ({ children, onClick, variant = "ghost", size = "default", className = "", disabled = false }) => {
+  const baseClasses = "inline-flex items-center justify-center rounded-md font-medium transition-colors focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50";
+  const variantClasses = {
+    default: "bg-white/20 text-white",
+    ghost: "text-white hover:bg-white/10",
+    outline: "border border-white/10 text-white hover:bg-white/10"
+  };
+  const sizeClasses = { default: "h-10 px-4 py-2", sm: "h-8 px-3 text-sm", lg: "h-12 px-8" };
+  return <button onClick={onClick} disabled={disabled} className={`${baseClasses} ${variantClasses[variant]} ${sizeClasses[size]} ${className}`}>{children}</button>;
+};
+
+const Tabs = ({ defaultValue, children, className = "" }) => {
+  const [activeTab, setActiveTab] = useState(defaultValue);
+  return <div className={className}>{React.Children.map(children, child => React.cloneElement(child, { activeTab, setActiveTab }))}</div>;
+};
+
+const TabsList = ({ children, className = "", activeTab, setActiveTab }) => (
+  <div className={`flex ${className}`}>{React.Children.map(children, child => React.cloneElement(child, { activeTab, setActiveTab }))}</div>
+);
+
+const TabsTrigger = ({ value, children, className = "", activeTab, setActiveTab }) => (
+  <button onClick={() => setActiveTab(value)} className={`flex-1 px-3 py-2 text-sm font-medium transition-colors rounded-md ${activeTab === value ? 'bg-white/15 text-white' : 'text-gray-400 hover:text-white'} ${className}`}>{children}</button>
+);
+
+const TabsContent = ({ value, children, className = "", activeTab }) => activeTab === value ? <div className={className}>{children}</div> : null;
+
+const Slider = ({ value, onValueChange, min = 0, max = 100, step = 1, className = "" }) => (
+  <input type="range" min={min} max={max} step={step} value={value[0]} onChange={(e) => onValueChange([parseFloat(e.target.value)])} className={`w-full h-2 bg-white/20 rounded-lg appearance-none cursor-pointer slider ${className}`} />
+);
+
+const Select = ({ value, onValueChange, children }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button onClick={() => setIsOpen(!isOpen)} className="w-full px-3 py-2 bg-black/30 border border-white/10 text-white rounded-md text-left flex justify-between items-center"><span>{value}</span><span className={`transform transition-transform ${isOpen ? 'rotate-180' : ''}`}>▼</span></button>
+      {isOpen && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
+          <div className="absolute z-50 w-full mt-1 bg-gray-950/80 backdrop-blur-lg border border-white/10 rounded-md shadow-lg bottom-full mb-1">{React.Children.map(children, child => React.cloneElement(child, { onSelect: (val) => { onValueChange(val); setIsOpen(false); } }))}</div>
+        </>
+      )}
+    </div>
+  );
+};
+
+const SelectItem = ({ value, children, onSelect }) => <button onClick={() => onSelect(value)} className="w-full px-3 py-2 text-left text-white hover:bg-white/10 first:rounded-t-md last:rounded-b-md">{children}</button>;
+const Label = ({ children, className = "" }) => <label className={`text-sm font-medium ${className}`}>{children}</label>;
+const Card = ({ children, className = "" }) => <div className={`rounded-lg border ${className}`}>{children}</div>;
+const CardHeader = ({ children, className = "" }) => <div className={`p-6 ${className}`}>{children}</div>;
+const CardTitle = ({ children, className = "" }) => <h3 className={`text-lg font-semibold ${className}`}>{children}</h3>;
+const CardDescription = ({ children, className = "" }) => <p className={`text-sm ${className}`}>{children}</p>;
+
+// =================================================================
+// CONSTANTS FOR VIDEO PLAYER SETTINGS
+// =================================================================
+const qualityOptions = [{ value: '1080p', label: '1080p', badge: 'Full HD' }, { value: '720p', label: '720p', badge: 'HD' }, { value: '480p', label: '480p', badge: null }, { value: '360p', label: '360p', badge: null }];
+const subtitleColors = ['#FFFFFF', '#FF69B4', '#808080', '#7FFFD4', '#8A2BE2', '#FF0000', '#00CED1', '#FFA500', '#FFC0CB', '#1E90FF', '#000080', '#FFFF00'];
+const availableLanguages = [{ value: 'english', label: 'English' }, { value: 'spanish', label: 'Español (Spanish)' }, { value: 'french', label: 'Français (French)' }, { value: 'german', label: 'Deutsch (German)' }, { value: 'none', label: 'Off' }];
+const playbackSpeedOptions = [{ value: 0.5, label: '0.5x' }, { value: 0.75, label: '0.75x' }, { value: 1, label: '1x (Normal)' }, { value: 1.25, label: '1.25x' }, { value: 1.5, label: '1.5x' }, { value: 2, label: '2x' }];
+const CAST_APP_ID = 'CC1AD845'; // Default Media Receiver App ID
+
+const CastState = {
+  NO_DEVICES_AVAILABLE: 'no_devices_available',
+  NOT_CONNECTED: 'not_connected',
+  CONNECTING: 'connecting',
+  CONNECTED: 'connected',
+};
+
+// =================================================================
+// THE MAIN VIDEO PLAYER COMPONENT
+// =================================================================
+const VideoPlayer = ({ src = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4", title = "Big Buck Bunny", subtitles = [] }) => {
+  const videoRef = useRef(null);
+  const playerContainerRef = useRef(null);
+  const progressBarRef = useRef(null);
+  const controlsTimeoutRef = useRef(null);
+  const remotePlayerControllerRef = useRef(null);
+
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(1);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isFullScreen, setIsFullScreen] = useState(false);
+  const [showControls, setShowControls] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showServers, setShowServers] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
+  const [selectedQuality, setSelectedQuality] = useState('1080p');
+  const [selectedServer, setSelectedServer] = useState(1);
+  const [subtitleFontSize, setSubtitleFontSize] = useState(30);
+  const [subtitleBackgroundBlur, setSubtitleBackgroundBlur] = useState(0);
+  const [subtitleColor, setSubtitleColor] = useState('#FFFFFF');
+
+  // --- Chromecast State ---
+  const [isCastAvailable, setIsCastAvailable] = useState(false);
+  const [castState, setCastState] = useState(CastState.NO_DEVICES_AVAILABLE);
+  const [castDeviceName, setCastDeviceName] = useState('');
+
+  // --- Chromecast Integration ---
+  useEffect(() => {
+    // Dynamically load the Google Cast SDK script
+    const script = document.createElement('script');
+    script.src = 'https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1';
+    script.async = true;
+    document.body.appendChild(script);
+
+    window['__onGCastApiAvailable'] = (isAvailable) => {
+      if (isAvailable) {
+        setIsCastAvailable(true);
+        initializeCastApi();
+      }
+    };
+
+    const initializeCastApi = () => {
+      const castContext = window.cast.framework.CastContext.getInstance();
+      castContext.setOptions({
+        receiverApplicationId: CAST_APP_ID,
+        autoJoinPolicy: window.chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED,
+      });
+
+      const handleCastStateChange = (event) => {
+        const newCastState = event.castState;
+        console.log('Cast state changed:', newCastState);
+        setCastState(newCastState);
+        if (newCastState === CastState.CONNECTED) {
+          const session = castContext.getCurrentSession();
+          setCastDeviceName(session.getCastDevice().friendlyName);
+          loadRemoteMedia(session);
+        } else {
+          setCastDeviceName('');
+        }
+      };
+      
+      castContext.addEventListener(window.cast.framework.CastContextEventType.CAST_STATE_CHANGED, handleCastStateChange);
+    };
+
+    return () => {
+      // Clean up the global callback
+      delete window['__onGCastApiAvailable'];
+      const castContext = window.cast?.framework?.CastContext?.getInstance();
+      if (castContext) {
+          // It's generally hard to fully "remove" the listeners without a reference.
+          // The SDK is designed to be a singleton, so we leave it for the page's lifecycle.
+      }
+    };
+  }, []);
+
+  const loadRemoteMedia = (session) => {
+    if (!videoRef.current) return;
+    videoRef.current.pause(); // Pause local playback
+
+    const mediaInfo = new window.chrome.cast.media.MediaInfo(src, 'video/mp4');
+    mediaInfo.metadata = new window.chrome.cast.media.GenericMediaMetadata();
+    mediaInfo.metadata.title = title;
+    
+    const request = new window.chrome.cast.media.LoadRequest(mediaInfo);
+    request.currentTime = videoRef.current.currentTime;
+    request.autoplay = true;
+
+    session.loadMedia(request).then(() => {
+        console.log('Media loaded successfully on remote device.');
+        const remotePlayer = new window.cast.framework.RemotePlayer();
+        remotePlayerControllerRef.current = new window.cast.framework.RemotePlayerController(remotePlayer);
+
+        const handleRemotePlayerChange = () => {
+            if (!remotePlayer) return;
+            setIsPlaying(remotePlayer.playerState === 'PLAYING');
+            setCurrentTime(remotePlayer.currentTime);
+            setDuration(remotePlayer.duration);
+            setVolume(remotePlayer.volumeLevel);
+            setIsMuted(remotePlayer.isMuted);
+        };
+        
+        remotePlayerControllerRef.current.addEventListener(window.cast.framework.RemotePlayerEventType.ANY_CHANGE, handleRemotePlayerChange);
+      },
+      (errorCode) => {
+        console.error('Remote media load failed: ' + errorCode);
+      }
+    );
+  };
+  
+  const handleCastButtonClick = () => {
+    const castContext = window.cast.framework.CastContext.getInstance();
+    castContext.requestSession().catch((error) => {
+      console.error('Cast session request failed', error);
+    });
+  };
+
+  const isCasting = castState === CastState.CONNECTED;
+
+  const handleTimeUpdate = () => { if (videoRef.current && !isCasting) setCurrentTime(videoRef.current.currentTime); };
+  const handleLoadedMetadata = () => { if (videoRef.current && !isCasting) { setDuration(videoRef.current.duration); setIsLoading(false); } };
+  const handleCanPlay = () => { if (videoRef.current?.duration && !isCasting) { setIsLoading(false); setDuration(videoRef.current.duration); } };
+  const handleVideoEnd = () => setIsPlaying(false);
+
+  const togglePlayPause = useCallback(() => {
+    if (isCasting) {
+      remotePlayerControllerRef.current?.playOrPause();
+      return;
+    }
+    if (!videoRef.current) return;
+    isPlaying ? videoRef.current.pause() : videoRef.current.play().catch(e => console.error("Play Error:", e));
+  }, [isPlaying, isCasting]);
+
+  const handleSeek = useCallback((amount) => {
+    if (isCasting) {
+      if (!remotePlayerControllerRef.current) return;
+      const newTime = Math.max(0, Math.min(duration, currentTime + amount));
+      remotePlayerControllerRef.current.seek(newTime);
+      return;
+    }
+    if (!videoRef.current || duration <= 0) return;
+    videoRef.current.currentTime = Math.max(0, Math.min(duration, videoRef.current.currentTime + amount));
+  }, [duration, currentTime, isCasting]);
+
+  const handleProgressClick = (e) => {
+    if (!progressBarRef.current || duration <= 0) return;
+    const rect = progressBarRef.current.getBoundingClientRect();
+    const newTime = ((e.clientX - rect.left) / rect.width) * duration;
+
+    if (isCasting) {
+      remotePlayerControllerRef.current?.seek(newTime);
+    } else if (videoRef.current) {
+      videoRef.current.currentTime = newTime;
+    }
+  };
+
+  const toggleMute = useCallback(() => {
+    if (isCasting) {
+      remotePlayerControllerRef.current?.muteOrUnmute();
+      return;
+    }
+    if (!videoRef.current) return;
+    const newMuted = !isMuted;
+    videoRef.current.muted = newMuted;
+    setIsMuted(newMuted);
+    if (!newMuted && volume === 0) { setVolume(0.5); videoRef.current.volume = 0.5; }
+  }, [isMuted, volume, isCasting]);
+
+  const handleVolumeChange = (newVolume) => {
+    if (isCasting) {
+      if (!remotePlayerControllerRef.current) return;
+      remotePlayerControllerRef.current.setVolumeLevel(newVolume);
+      setVolume(newVolume); // Manually update state as event might lag
+      return;
+    }
+    setVolume(newVolume);
+    if (videoRef.current) {
+      videoRef.current.volume = newVolume;
+      videoRef.current.muted = newVolume === 0;
+      setIsMuted(newVolume === 0);
+    }
+  };
+
+  const adjustVolume = useCallback((delta) => handleVolumeChange(Math.max(0, Math.min(1, volume + delta))), [volume, handleVolumeChange]);
+
+  const toggleFullScreen = useCallback(() => {
+    if (isCasting) return;
+    if (!document.fullscreenElement) playerContainerRef.current?.requestFullscreen();
+    else document.exitFullscreen();
+  }, [isCasting]);
+
+  const changePlaybackSpeed = useCallback((speed) => {
+    if (isCasting) {
+      // Note: Chromecast playback speed control is not directly supported in the default receiver.
+      // This would require a custom receiver application. We disable it for now.
+      console.warn("Playback speed cannot be changed during a cast session with the default receiver.");
+      return;
+    }
+    if (videoRef.current) { videoRef.current.playbackRate = speed; setPlaybackSpeed(speed); }
+  }, [isCasting]);
+
+  const hideControls = () => setShowControls(false);
+  const displayControls = useCallback(() => {
+    setShowControls(true);
+    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+    if (isPlaying) controlsTimeoutRef.current = setTimeout(hideControls, 3000);
+  }, [isPlaying]);
+
+  useEffect(() => {
+    const handleKeyPress = (e) => {
+      if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'BUTTON') return;
+      const keyActionMap = { 'Space': togglePlayPause, 'KeyK': togglePlayPause, 'ArrowLeft': () => handleSeek(-10), 'KeyJ': () => handleSeek(-10), 'ArrowRight': () => handleSeek(10), 'KeyL': () => handleSeek(10), 'ArrowUp': () => adjustVolume(0.1), 'ArrowDown': () => adjustVolume(-0.1), 'KeyM': toggleMute, 'KeyF': toggleFullScreen, 'Escape': () => setShowSettings(false) };
+      if (keyActionMap[e.code]) { e.preventDefault(); keyActionMap[e.code](); }
+      if (e.code.startsWith('Digit') && !isCasting) {
+        if (videoRef.current && duration > 0) videoRef.current.currentTime = (parseInt(e.code.replace('Digit', '')) / 10) * duration;
+      }
+    };
+    document.addEventListener('keydown', handleKeyPress);
+    return () => document.removeEventListener('keydown', handleKeyPress);
+  }, [togglePlayPause, handleSeek, adjustVolume, toggleMute, toggleFullScreen, duration, isCasting]);
+
+  useEffect(() => {
+    const video = videoRef.current; if (!video || isCasting) return;
+    setIsLoading(true); video.src = src;
+    const events = { timeupdate: handleTimeUpdate, loadedmetadata: handleLoadedMetadata, canplay: handleCanPlay, ended: handleVideoEnd, play: () => setIsPlaying(true), pause: () => setIsPlaying(false), waiting: () => setIsLoading(true), playing: () => setIsLoading(false) };
+    Object.entries(events).forEach(([event, handler]) => video.addEventListener(event, handler));
+    const handleFsChange = () => setIsFullScreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handleFsChange);
+    return () => {
+      Object.entries(events).forEach(([event, handler]) => video.removeEventListener(event, handler));
+      document.removeEventListener('fullscreenchange', handleFsChange);
+      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+    };
+  }, [src, isCasting]);
+
+  useEffect(() => { displayControls(); }, [isPlaying, displayControls]);
+
+  const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const VolumeIcon = isMuted || volume === 0 ? VolumeX : (volume < 0.5 ? Volume1 : Volume2);
+  const resetSubtitleSettings = () => { setSubtitleFontSize(30); setSubtitleBackgroundBlur(0); setSubtitleColor('#FFFFFF'); };
+  const volumeProgress = isMuted ? 0 : volume * 100;
+
+  return (
+    <>
+      <style>{`
+        .custom-slider {
+          -webkit-appearance: none; appearance: none;
+          height: 3px; background: transparent; cursor: pointer; width: 100%;
+        }
+        .custom-slider::-webkit-slider-runnable-track {
+          height: 3px; border-radius: 1.5px;
+        }
+        .custom-slider::-moz-range-track {
+          height: 3px; border-radius: 1.5px;
+        }
+        .custom-slider::-webkit-slider-thumb {
+          -webkit-appearance: none; appearance: none;
+          width: 14px; height: 14px;
+          background: #fff; border-radius: 50%;
+          cursor: pointer; margin-top: -5.5px; /* (3px track - 14px thumb) / 2 */
+        }
+        .custom-slider::-moz-range-thumb {
+          width: 14px; height: 14px;
+          background: #fff; border-radius: 50%;
+          cursor: pointer; border: none;
+        }
+        .volume-slider-container {
+          transition: width 0.3s ease, opacity 0.3s ease;
+          width: 0; opacity: 0;
+          transform: translateY(-5px);
+        }
+        .volume-group:hover .volume-slider-container {
+          width: 80px; opacity: 1; margin-left: 8px;
+        }
+        .cast-active { color: #63b3ed; }
+      `}</style>
+      <div className="w-full h-screen bg-black relative flex items-center justify-center font-sans text-white overflow-hidden">
+        <div ref={playerContainerRef} className={`w-full h-full relative group ${!showControls && isPlaying ? 'cursor-none' : 'cursor-pointer'}`} onMouseMove={displayControls} onMouseLeave={isPlaying ? hideControls : undefined}>
+          <video ref={videoRef} className="w-full h-full object-contain" preload="metadata" />
+
+          {isCasting && (
+            <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center z-20 text-white">
+                <Cast size={80} className="mb-4 text-blue-400" />
+                <h2 className="text-2xl font-bold">Casting to {castDeviceName}</h2>
+                <p className="text-gray-300">This video is playing on your TV.</p>
+            </div>
+          )}
+          
+          {isLoading && !isCasting && <div className="absolute inset-0 flex items-center justify-center bg-black/30"><div className="animate-spin rounded-full h-16 w-16 border-4 border-white border-t-transparent"></div></div>}
+
+          {showControls && !isLoading && !isCasting && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <button onClick={togglePlayPause} className="p-3 sm:p-4 pointer-events-auto transition-transform hover:scale-110 drop-shadow-lg" aria-label={isPlaying ? 'Pause' : 'Play'}>
+                {isPlaying ? <Pause size={64} /> : <Play size={64} />}
+              </button>
+            </div>
+          )}
+
+          <div className={`absolute inset-0 flex flex-col justify-between transition-opacity duration-300 z-30 pointer-events-none ${showControls ? 'opacity-100' : 'opacity-0'}`}>
+            <div className="flex justify-between items-center p-4 md:p-6 bg-gradient-to-b from-black/70 to-transparent pointer-events-auto">
+              <button className="text-white hover:text-gray-300 transition-colors p-2"><ArrowLeft size={28} /></button>
+            </div>
+
+            <div className="px-4 md:px-6 pt-2 pb-3 md:pb-4 bg-gradient-to-t from-black/80 to-transparent pointer-events-auto">
+              <div ref={progressBarRef} className="w-full h-1 md:h-1.5 bg-white/30 rounded-full cursor-pointer mb-3 relative group/progress" onClick={handleProgressClick}>
+                <div className="h-full bg-white rounded-full relative group-hover/progress:h-2 transition-all duration-150" style={{ width: `${progressPercent}%` }}>
+                  <div className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full opacity-0 group-hover/progress:opacity-100 transition-opacity" style={{ right: '-6px' }} />
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2 md:space-x-4">
+                  <button onClick={togglePlayPause} className="text-white p-2" disabled={isLoading}>{isPlaying ? <Pause size={32} /> : <Play size={32} />}</button>
+                  <button onClick={() => handleSeek(-10)} className="text-white p-2" disabled={isLoading || duration === 0} title="Rewind 10s (J)"><RotateCcw size={28} /></button>
+                  <button onClick={() => handleSeek(10)} className="text-white p-2" disabled={isLoading || duration === 0} title="Forward 10s (L)"><RotateCw size={28} /></button>
+                  <div className="hidden md:flex items-center volume-group">
+                    <button onClick={toggleMute} className="text-white p-2" title={isMuted ? "Unmute (M)" : "Mute (M)"}><VolumeIcon size={28} /></button>
+                    <div className="volume-slider-container">
+                      <input type="range" min="0" max="1" step="0.05" value={isMuted ? 0 : volume} onChange={(e) => handleVolumeChange(parseFloat(e.target.value))} className="custom-slider" style={{ background: `linear-gradient(to right, white ${volumeProgress}%, rgba(255, 255, 255, 0.3) ${volumeProgress}%)` }}/>
+                    </div>
+                  </div>
+                  <span className="text-base font-medium text-white/90 min-w-max tracking-wide">{formatTime(currentTime)} / {formatTime(duration)}</span>
+                </div>
+                <div className="hidden md:flex flex-1 justify-center px-4"><span className="text-xl font-semibold text-center truncate max-w-md">{title}</span></div>
+                <div className="flex items-center space-x-2 md:space-x-4">
+                  <Popover open={showServers} onOpenChange={setShowServers} trigger={<button className="text-white p-2" title="Select Server"><Cloud size={28} /></button>}><div className="w-48 p-3"><h4 className="font-semibold text-white mb-2">Select Server</h4><div className="space-y-1">{[1, 2, 3, 4].map(server => (<Button key={server} variant={selectedServer === server ? "default" : "ghost"} className="w-full justify-start text-sm" onClick={() => { setSelectedServer(server); setShowServers(false); }}>Server {server}</Button>))}</div></div></Popover>
+                  <button onClick={() => setShowSettings(true)} className="text-white p-2" title="Settings"><Settings size={28} /></button>
+                  <button onClick={handleCastButtonClick} disabled={!isCastAvailable || castState === CastState.CONNECTING} className={`hidden md:block text-white p-2 transition-colors ${isCasting ? 'cast-active' : ''}`} title="Cast"><Cast size={28} /></button>
+                  <button onClick={toggleFullScreen} className="text-white p-2" title={isFullScreen ? "Exit Fullscreen (F)" : "Fullscreen (F)"} disabled={isCasting}>{isFullScreen ? <Minimize size={28} /> : <Maximize size={28} />}</button>
+                </div>
+              </div>
+              <div className="md:hidden mt-2 text-center"><span className="text-sm font-medium text-white/90 truncate block">{title}</span></div>
+            </div>
+          </div>
+          <Dialog open={showSettings} onOpenChange={setShowSettings}>
+            <div className="p-6 shrink-0"><h2 className="text-xl font-semibold text-white">Player Settings</h2><p className="text-gray-400 text-sm">Customize your video playback experience</p></div>
+            <div className="px-6 pb-6 flex-1 flex flex-col min-h-0">
+              <Tabs defaultValue="quality" className="w-full flex-1 flex flex-col">
+                <TabsList className="grid w-full grid-cols-4 bg-black/20 rounded-lg p-1 shrink-0"><TabsTrigger value="quality">Quality</TabsTrigger><TabsTrigger value="subtitles">Subtitles</TabsTrigger><TabsTrigger value="opensubtitles">Captions</TabsTrigger><TabsTrigger value="settings">Settings</TabsTrigger></TabsList>
+                <div className="overflow-y-auto mt-6 pr-2 flex-1">
+                  <TabsContent value="quality" className="space-y-2">{qualityOptions.map(option => (<div key={option.value} className={`flex items-center justify-between p-3 rounded-lg cursor-pointer ${selectedQuality === option.value ? 'bg-white/10' : 'text-gray-300 hover:bg-white/5'}`} onClick={() => setSelectedQuality(option.value)}><span>{option.label}</span>{option.badge && (<span className={`text-xs px-2 py-0.5 rounded-full ${selectedQuality === option.value ? 'bg-gray-500 text-white' : 'bg-gray-600 text-gray-200'}`}>{option.badge}</span>)}</div>))}<p className="text-xs text-gray-500 pt-2">Actual quality may vary.</p></TabsContent>
+                  <TabsContent value="subtitles" className="space-y-6"><div><Label className="block mb-2 text-gray-300">Font Size</Label><div className="flex items-center space-x-3"><Slider value={[subtitleFontSize]} onValueChange={(v) => setSubtitleFontSize(v[0])} min={10} max={50} step={1} className="flex-grow" /><span className="w-10 text-right text-gray-400 tabular-nums">{subtitleFontSize}px</span></div></div><div><Label className="block mb-2 text-gray-300">Background Blur</Label><div className="flex items-center space-x-3"><Slider value={[subtitleBackgroundBlur]} onValueChange={(v) => setSubtitleBackgroundBlur(v[0])} min={0} max={10} step={1} className="flex-grow" /><span className="w-10 text-right text-gray-400 tabular-nums">{subtitleBackgroundBlur}px</span></div></div><div><Label className="block mb-2 text-gray-300">Text Color</Label><div className="grid grid-cols-6 gap-2">{subtitleColors.map(color => (<button key={color} className={`w-full h-8 rounded border-2 transition-all ${subtitleColor === color ? 'border-white ring-2 ring-white ring-offset-2 ring-offset-black/50' : 'border-transparent hover:border-gray-500'}`} style={{ backgroundColor: color }} onClick={() => setSubtitleColor(color)} title={color} />))}</div></div><Button onClick={resetSubtitleSettings} variant="outline" className="w-full mt-4">Reset to Default</Button></TabsContent>
+                  <TabsContent value="opensubtitles" className="space-y-6"> {/* Placeholder Content */} </TabsContent>
+                  <TabsContent value="settings" className="space-y-6"><div><Label className="block mb-2 text-gray-300">Playback Speed</Label><Select value={playbackSpeedOptions.find(opt => opt.value === playbackSpeed)?.label || ''} onValueChange={(v) => changePlaybackSpeed(parseFloat(v))}>{playbackSpeedOptions.map(option => (<SelectItem key={option.value} value={String(option.value)} disabled={isCasting}>{option.label}</SelectItem>))}</Select></div><Card className="bg-black/20 border-white/10"><CardHeader><CardTitle className="text-white">Device Streaming</CardTitle><CardDescription className="text-gray-400">(UI Placeholder)</CardDescription></CardHeader><div className="p-6 pt-0 space-y-3"><Button variant="outline" className="w-full flex items-center justify-start space-x-2" disabled><Monitor size={20} /> <span>Connect to TV / Desktop</span></Button><Button variant="outline" className="w-full flex items-center justify-start space-x-2" disabled><Tablet size={20} /> <span>Connect to Tablet</span></Button><Button variant="outline" className="w-full flex items-center justify-start space-x-2" disabled><Smartphone size={20} /> <span>Connect to Phone</span></Button></div></Card></TabsContent>
+                </div>
+              </Tabs>
+            </div>
+          </Dialog>
+        </div>
+      </div>
+    </>
+  );
+};
+
+export default VideoPlayer;
